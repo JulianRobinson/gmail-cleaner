@@ -68,12 +68,14 @@ export function App() {
     setPhase((p) => (p.kind === 'previewed' || p.kind === 'done' ? { kind: 'idle' } : p));
   }, [filters]);
 
-  const futureDate = useMemo(() => {
-    if (!filters.beforeDate) return false;
+  // The range reaches today when it has no end or ends today or later.
+  const reachesToday = useMemo(() => {
+    if (!filters.startDate && !filters.endDate) return false;
+    if (!filters.endDate) return true;
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    return filters.beforeDate > todayStr;
-  }, [filters.beforeDate]);
+    return filters.endDate >= todayStr;
+  }, [filters.startDate, filters.endDate]);
 
   function handleAuthError(err: unknown): boolean {
     if (err instanceof AuthExpiredError) {
@@ -220,8 +222,8 @@ export function App() {
           <section className="query">
             <h2>Gmail search query</h2>
             {query.error ? <p className="hint">{query.error}</p> : <code className="query-text">{query.text}</code>}
-            {futureDate ? (
-              <p className="warning">This date is in the future, so recent mail (up to today) will match too.</p>
+            {reachesToday && !query.error ? (
+              <p className="warning">This range runs up to today, so recent mail will match too.</p>
             ) : null}
             {!filters.excludeStarred || !filters.excludeImportant ? (
               <p className="warning">A protection is off: starred or important mail can be included.</p>

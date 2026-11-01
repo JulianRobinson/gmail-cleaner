@@ -14,8 +14,10 @@ export interface LabelChoice {
 }
 
 export interface Filters {
-  /** Required. Local calendar date (YYYY-MM-DD); mail received before its midnight matches. */
-  beforeDate: string;
+  /** Local calendar date (YYYY-MM-DD), inclusive; blank leaves the range open at the start. */
+  startDate: string;
+  /** Local calendar date (YYYY-MM-DD), inclusive; blank leaves the range open at the end. */
+  endDate: string;
   from: string;
   to: string;
   subject: string;
@@ -36,7 +38,8 @@ export interface Filters {
 
 export function emptyFilters(): Filters {
   return {
-    beforeDate: '',
+    startDate: '',
+    endDate: '',
     from: '',
     to: '',
     subject: '',
@@ -107,6 +110,38 @@ export function localMidnightEpoch(date: string, timeZone?: string): number {
   return Math.floor(guess / 1000);
 }
 
+/** The calendar date `days` after `date`, as YYYY-MM-DD. */
+export function addDays(date: string, days: number): string {
+  const { year, month, day } = parseDate(date);
+  const d = new Date(Date.UTC(year, month - 1, day + days));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Message for a range whose start is after its end, or '' when the order is fine or a date is missing. */
+export function dateRangeError(filters: Pick<Filters, 'startDate' | 'endDate'>): string {
+  const start = filters.startDate.trim();
+  const end = filters.endDate.trim();
+  // YYYY-MM-DD strings compare in calendar order.
+  return start && end && start > end ? 'The From date must be on or before the To date.' : '';
+}
+
+/**
+ * Gmail terms for an inclusive local-date range. `after:` is treated as
+ * exclusive, so the start is one second before the start day's midnight;
+ * `before:` is the midnight that begins the day after the end date.
+ */
+function dateTerms(filters: Filters, timeZone?: string): string[] {
+  const start = filters.startDate.trim();
+  const end = filters.endDate.trim();
+  if (!start && !end) throw new FilterError('Enter a From date, a To date, or both.');
+  const rangeError = dateRangeError(filters);
+  if (rangeError) throw new FilterError(rangeError);
+  const terms: string[] = [];
+  if (start) terms.push(`after:${localMidnightEpoch(start, timeZone) - 1}`);
+  if (end) terms.push(`before:${localMidnightEpoch(addDays(end, 1), timeZone)}`);
+  return terms;
+}
+
 const BARE_TERM = /^[\p{L}\p{N}._@]+$/u;
 const OPERATOR_WORDS = new Set(['OR', 'AND', 'AROUND']);
 
@@ -165,13 +200,12 @@ export function labelTerm(label: LabelChoice): string {
 }
 
 export interface BuildOptions {
-  /** IANA zone for interpreting `beforeDate`; defaults to the browser's zone. */
+  /** IANA zone for interpreting the date range; defaults to the browser's zone. */
   timeZone?: string;
 }
 
 export function buildQuery(filters: Filters, options: BuildOptions = {}): string {
-  if (!filters.beforeDate.trim()) throw new FilterError('A delete-before date is required.');
-  const terms: string[] = [`before:${localMidnightEpoch(filters.beforeDate, options.timeZone)}`];
+  const terms = dateTerms(filters, options.timeZone);
 
   terms.push(addressTerm('from', filters.from));
   terms.push(addressTerm('to', filters.to));

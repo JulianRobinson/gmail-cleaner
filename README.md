@@ -1,6 +1,6 @@
 # Gmail Cleaner
 
-A small browser-only web app for bulk-removing old Gmail messages. You pick a cut-off date and any other filters, preview exactly what matches, then move it to Trash or, if you opt in, permanently delete it.
+A small browser-only web app for bulk-removing old Gmail messages. You pick a date range and any other filters, preview exactly what matches, then move it to Trash or, if you opt in, permanently delete it.
 
 There is no backend. The app runs entirely in your browser tab: it signs in with Google Identity Services and calls the Gmail REST API directly. Access tokens live only in page memory and are never stored or sent anywhere else.
 
@@ -57,8 +57,8 @@ The tests use a mocked `fetch` and never contact Google.
 ## 3. Using it
 
 1. **Sign in with Google** and allow Gmail access. The app asks only for `gmail.modify`, which lets it read, label, and trash mail but not permanently delete it.
-2. **Set filters.** Only the date is required:
-   - **Delete mail received before**: the cut-off is midnight at the start of that day in *your* time zone. The query uses an absolute `before:<epoch seconds>` timestamp because Gmail interprets `before:YYYY/MM/DD` in US Pacific time.
+2. **Set filters.** Only the date range is required, and only one end of it:
+   - **Received from (inclusive)** / **Received to (inclusive)**: both days are included in full, in *your* time zone. Leave either blank for an open-ended range, but not both, so a run can never match the whole mailbox by leaving the date out. A From date after the To date is rejected and Preview stays disabled until it is fixed. The query uses absolute timestamps, `after:<epoch seconds>` (one second before midnight at the start of the From day) and `before:<epoch seconds>` (midnight at the start of the day after the To day), because Gmail interprets `after:YYYY/MM/DD` and `before:YYYY/MM/DD` in US Pacific time.
    - **From / To**: a name or address. Separate several with commas to match any of them.
    - **Subject contains**, **Has the words**, **Doesn't have**: literal text. Put `"quotes"` around a phrase in the word fields. Characters Gmail would treat as search syntax are quoted, and double quotes inside a term are dropped because Gmail cannot escape them.
    - **Label**: one of your labels, Inbox, or Sent. It is applied both as `label:` in the query and by label ID, so it matches that exact label only.
@@ -79,7 +79,7 @@ The tests use a mocked `fetch` and never contact Google.
 - **Trash by default.** The default action moves mail to Gmail's Trash, where it can be restored for 30 days.
 - **Protections on by default.** Starred mail (`-is:starred`) and mail Gmail marks important (`-is:important`) are excluded unless you untick those boxes. The page warns you when a protection is off.
 - **Spam and Trash are never searched**, and nothing happens without a preview and an explicit confirmation of the exact count.
-- **Future dates warn you** that recent mail will match too.
+- **Ranges that reach today warn you** (a To date of today or later, or no To date) that recent mail will match too.
 - **Permanent delete is opt-in and needs an extra step:**
   1. Choose **Permanently delete (cannot be undone)**.
   2. Grant the extra `https://mail.google.com/` permission when asked. This is the only scope that allows `messages.batchDelete`, so it is requested only at this point and never at sign-in.

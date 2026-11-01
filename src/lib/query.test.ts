@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   FilterError,
+  addDays,
   buildQuery,
+  dateRangeError,
   emptyFilters,
   labelTerm,
   localMidnightEpoch,
@@ -12,7 +14,7 @@ import {
 } from './query';
 
 function filters(overrides: Partial<Filters> = {}): Filters {
-  return { ...emptyFilters(), beforeDate: '2024-01-15', ...overrides };
+  return { ...emptyFilters(), endDate: '2024-01-14', ...overrides };
 }
 
 const UTC = { timeZone: 'UTC' };
@@ -50,6 +52,26 @@ describe('localMidnightEpoch', () => {
 
   it('uses the runtime zone when none is given', () => {
     expect(localMidnightEpoch('2024-01-15')).toBe(new Date(2024, 0, 15).getTime() / 1000);
+  });
+});
+
+describe('addDays', () => {
+  it('rolls over months, years, and leap days', () => {
+    expect(addDays('2024-01-14', 1)).toBe('2024-01-15');
+    expect(addDays('2024-01-31', 1)).toBe('2024-02-01');
+    expect(addDays('2024-02-28', 1)).toBe('2024-02-29');
+    expect(addDays('2023-02-28', 1)).toBe('2023-03-01');
+    expect(addDays('2024-12-31', 1)).toBe('2025-01-01');
+  });
+});
+
+describe('dateRangeError', () => {
+  it('flags only a start after the end', () => {
+    expect(dateRangeError({ startDate: '2024-01-16', endDate: '2024-01-15' })).not.toBe('');
+    expect(dateRangeError({ startDate: '2024-01-15', endDate: '2024-01-15' })).toBe('');
+    expect(dateRangeError({ startDate: '2024-01-14', endDate: '2024-01-15' })).toBe('');
+    expect(dateRangeError({ startDate: '', endDate: '2024-01-15' })).toBe('');
+    expect(dateRangeError({ startDate: '2024-01-15', endDate: '' })).toBe('');
   });
 });
 
@@ -111,11 +133,71 @@ describe('labelTerm', () => {
   });
 });
 
-describe('buildQuery', () => {
-  it('requires a date', () => {
+describe('buildQuery date range', () => {
+  const dates = (startDate: string, endDate: string, timeZone = 'UTC') =>
+    buildQuery(filters({ startDate, endDate, excludeStarred: false, excludeImportant: false }), { timeZone });
+
+  it('requires at least one date', () => {
     expect(() => buildQuery(emptyFilters(), UTC)).toThrow(FilterError);
+    expect(() => dates('  ', '')).toThrow(FilterError);
   });
 
+  it('includes both whole end days', () => {
+    // after: one second before 2024-01-10 starts; before: the midnight that starts 2024-01-15.
+    expect(dates('2024-01-10', '2024-01-14')).toBe(
+      `after:${Date.UTC(2024, 0, 10) / 1000 - 1} before:${Date.UTC(2024, 0, 15) / 1000}`,
+    );
+  });
+
+  it('leaves the start open when only an end is given', () => {
+    expect(dates('', '2024-01-14')).toBe(`before:${Date.UTC(2024, 0, 15) / 1000}`);
+  });
+
+  it('leaves the end open when only a start is given', () => {
+    expect(dates('2024-01-10', '')).toBe(`after:${Date.UTC(2024, 0, 10) / 1000 - 1}`);
+  });
+
+  it('covers exactly one day when start equals end', () => {
+    expect(dates('2024-01-15', '2024-01-15')).toBe(
+      `after:${Date.UTC(2024, 0, 15) / 1000 - 1} before:${Date.UTC(2024, 0, 16) / 1000}`,
+    );
+  });
+
+  it('rejects a start after the end', () => {
+    expect(() => dates('2024-01-16', '2024-01-15')).toThrow('The From date must be on or before the To date.');
+  });
+
+  it('rejects invalid dates on either end', () => {
+    expect(() => dates('2024-02-30', '')).toThrow(FilterError);
+    expect(() => dates('', '2024-13-01')).toThrow(FilterError);
+  });
+
+  it('rolls the end over month and year boundaries', () => {
+    expect(dates('', '2024-12-31')).toBe(`before:${Date.UTC(2025, 0, 1) / 1000}`);
+    expect(dates('', '2024-02-28')).toBe(`before:${Date.UTC(2024, 1, 29) / 1000}`);
+  });
+
+  it('uses local midnights across DST transitions', () => {
+    // New York springs forward on 2024-03-10: the 9th starts in EST (UTC-5), the 11th in EDT (UTC-4).
+    expect(dates('2024-03-09', '2024-03-10', 'America/New_York')).toBe(
+      `after:${Date.UTC(2024, 2, 9, 5) / 1000 - 1} before:${Date.UTC(2024, 2, 11, 4) / 1000}`,
+    );
+    // ...and falls back on 2024-11-03: the 3rd starts in EDT, the 4th in EST, a 25-hour day.
+    expect(dates('2024-11-03', '2024-11-03', 'America/New_York')).toBe(
+      `after:${Date.UTC(2024, 10, 3, 4) / 1000 - 1} before:${Date.UTC(2024, 10, 4, 5) / 1000}`,
+    );
+    // Southern hemisphere: Sydney leaves AEDT (UTC+11) for AEST (UTC+10) on 2024-04-07.
+    expect(dates('2024-04-06', '2024-04-07', 'Australia/Sydney')).toBe(
+      `after:${Date.UTC(2024, 3, 5, 13) / 1000 - 1} before:${Date.UTC(2024, 3, 7, 14) / 1000}`,
+    );
+  });
+
+  it('never emits the date-string after:/before: forms', () => {
+    expect(dates('2024-01-10', '2024-01-14', 'Asia/Tokyo')).not.toMatch(/(after|before):\d{4}\//);
+  });
+});
+
+describe('buildQuery', () => {
   it('includes the default protections', () => {
     expect(buildQuery(filters(), UTC)).toBe(`before:${Date.UTC(2024, 0, 15) / 1000} -is:starred -is:important`);
   });
@@ -124,10 +206,6 @@ describe('buildQuery', () => {
     expect(buildQuery(filters({ excludeStarred: false, excludeImportant: false }), UTC)).toBe(
       `before:${Date.UTC(2024, 0, 15) / 1000}`,
     );
-  });
-
-  it('never emits the date-string before: form', () => {
-    expect(buildQuery(filters(), { timeZone: 'Asia/Tokyo' })).not.toMatch(/before:\d{4}\//);
   });
 
   it('compiles every filter', () => {

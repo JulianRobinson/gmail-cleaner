@@ -1,5 +1,5 @@
 import type { ChangeEvent } from 'react';
-import { CATEGORIES, type Filters, type LabelChoice, type ReadState, type SizeUnit } from '../lib/query';
+import { CATEGORIES, dateRangeError, type Filters, type LabelChoice, type ReadState, type SizeUnit } from '../lib/query';
 
 interface Props {
   filters: Filters;
@@ -12,16 +12,42 @@ export function FilterForm({ filters, labels, disabled, onChange }: Props) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value });
   const text = (key: 'from' | 'to' | 'subject' | 'hasWords' | 'excludeWords' | 'raw' | 'largerThan' | 'smallerThan') =>
     (e: ChangeEvent<HTMLInputElement>) => set(key, e.target.value);
+  const rangeError = dateRangeError(filters);
 
   return (
     <fieldset className="filters" disabled={disabled}>
       <legend>Filters</legend>
 
-      <label className="field required">
-        <span>Delete mail received before</span>
-        <input type="date" required value={filters.beforeDate} onChange={(e) => set('beforeDate', e.target.value)} />
-        <small>Midnight at the start of this day, in your local time zone.</small>
-      </label>
+      <div className="grid">
+        <label className="field">
+          <span>Received from (inclusive)</span>
+          <input
+            type="date"
+            value={filters.startDate}
+            max={filters.endDate || undefined}
+            onChange={(e) => set('startDate', e.target.value)}
+            aria-invalid={rangeError ? true : undefined}
+          />
+          <small>Mail from the start of this day. Leave blank for no start.</small>
+        </label>
+        <label className="field">
+          <span>Received to (inclusive)</span>
+          <input
+            type="date"
+            value={filters.endDate}
+            min={filters.startDate || undefined}
+            onChange={(e) => set('endDate', e.target.value)}
+            aria-invalid={rangeError ? true : undefined}
+          />
+          <small>Mail through the end of this day. Leave blank for no end.</small>
+        </label>
+      </div>
+      <small className="hint">Days are in your local time zone. Enter at least one date.</small>
+      {rangeError ? (
+        <p className="field-error" role="alert">
+          {rangeError}
+        </p>
+      ) : null}
 
       <div className="grid">
         <label className="field">
