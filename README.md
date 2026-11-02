@@ -64,7 +64,7 @@ The tests use a mocked `fetch` and never contact Google.
    - **Label**: one of your labels, Inbox, or Sent. It is applied both as `label:` in the query and by label ID, so it matches that exact label only.
    - **Category**: Primary, Promotions, Social, Updates, or Forums.
    - **Read status**, **Has attachment**, **Larger than / Smaller than** (KB or MB).
-   - **Extra Gmail search syntax**: anything else, using [Gmail search operators](https://support.google.com/mail/answer/7190). It is ANDed onto the query inside parentheses.
+   - **Extra Gmail search syntax**: anything else, using [Gmail search operators](https://support.google.com/mail/answer/7190). It is ANDed onto the query inside parentheses, ahead of the starred/important protections. Its quotes, parentheses and braces must be balanced, so it cannot close that group and widen the rest of the query; unbalanced input is rejected and Preview stays disabled.
 
    The exact Gmail query is shown as you type.
 3. **Preview matches.** The app pages through every match to get an exact count (Gmail's own estimate is unreliable), then shows the newest 25 with date, sender, and subject. Changing any filter discards the preview.
@@ -82,7 +82,7 @@ The tests use a mocked `fetch` and never contact Google.
 - **Ranges that reach today warn you** (a To date of today or later, or no To date) that recent mail will match too.
 - **Permanent delete is opt-in and needs an extra step:**
   1. Choose **Permanently delete (cannot be undone)**.
-  2. Grant the extra `https://mail.google.com/` permission when asked. This is the only scope that allows `messages.batchDelete`, so it is requested only at this point and never at sign-in.
+  2. Grant the extra `https://mail.google.com/` permission when asked. This is the only scope that allows `messages.batchDelete`, so it is requested only at this point and never at sign-in. It must be granted for the account you are signed in with; if you pick a different Google account in the popup, that grant is revoked and nothing changes. Granting it discards any preview, so preview again afterwards.
   3. In the confirmation dialog, which warns that this cannot be undone, type `DELETE`.
 
   Permanently deleted mail skips Trash and cannot be recovered.

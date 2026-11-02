@@ -199,6 +199,31 @@ export function labelTerm(label: LabelChoice): string {
   return `label:${slug}`;
 }
 
+const CLOSERS: Record<string, string> = { ')': '(', '}': '{' };
+
+/**
+ * Rejects raw syntax with an unmatched quote, parenthesis or brace, so it
+ * cannot close the group it is wrapped in and attach OR to a neighbouring term.
+ * Characters inside quotes are literal and are not counted.
+ */
+export function checkRawSyntax(raw: string): void {
+  const open: string[] = [];
+  let inQuote = false;
+  let balanced = true;
+  for (const ch of raw) {
+    if (ch === '"') inQuote = !inQuote;
+    else if (inQuote) continue;
+    else if (ch === '(' || ch === '{') open.push(ch);
+    else if (ch in CLOSERS && open.pop() !== CLOSERS[ch]) {
+      balanced = false;
+      break;
+    }
+  }
+  if (!balanced || inQuote || open.length > 0) {
+    throw new FilterError('Extra Gmail search syntax has an unmatched quote, parenthesis or brace.');
+  }
+}
+
 export interface BuildOptions {
   /** IANA zone for interpreting the date range; defaults to the browser's zone. */
   timeZone?: string;
@@ -226,11 +251,16 @@ export function buildQuery(filters: Filters, options: BuildOptions = {}): string
   terms.push(sizeTerm('smaller', filters.smallerThan, filters.smallerUnit, 'Smaller than'));
   if (filters.readState === 'read') terms.push('is:read');
   if (filters.readState === 'unread') terms.push('is:unread');
-  if (filters.excludeStarred) terms.push('-is:starred');
-  if (filters.excludeImportant) terms.push('-is:important');
 
   const raw = filters.raw.trim();
-  if (raw) terms.push(`(${raw})`);
+  if (raw) {
+    checkRawSyntax(raw);
+    terms.push(`(${raw})`);
+  }
+
+  // Protections go after the raw group so nothing in it can attach OR to them.
+  if (filters.excludeStarred) terms.push('-is:starred');
+  if (filters.excludeImportant) terms.push('-is:important');
 
   return terms.filter(Boolean).join(' ');
 }

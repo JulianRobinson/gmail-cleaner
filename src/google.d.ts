@@ -21,6 +21,7 @@ declare namespace google.accounts.oauth2 {
     scope: string;
     include_granted_scopes?: boolean;
     prompt?: string;
+    login_hint?: string;
     callback: (response: TokenResponse) => void;
     error_callback?: (error: ClientConfigError) => void;
   }

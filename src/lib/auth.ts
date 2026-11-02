@@ -34,7 +34,11 @@ function waitForGis(timeoutMs = 10000): Promise<void> {
  * Opens Google's consent popup for `scope`. Must be called from a user gesture
  * (a click handler) or the popup may be blocked.
  */
-export async function requestToken(scope: string, prompt: '' | 'consent' | 'select_account' = ''): Promise<AccessToken> {
+export async function requestToken(
+  scope: string,
+  prompt: '' | 'consent' | 'select_account' = '',
+  loginHint = '',
+): Promise<AccessToken> {
   const id = clientId();
   if (!id) throw new Error('VITE_GOOGLE_CLIENT_ID is not set. Copy .env.example to .env and add your client ID.');
   await waitForGis();
@@ -44,6 +48,7 @@ export async function requestToken(scope: string, prompt: '' | 'consent' | 'sele
       client_id: id,
       scope,
       include_granted_scopes: true,
+      ...(loginHint ? { login_hint: loginHint } : {}),
       callback: (response) => {
         if (response.error) {
           reject(new Error(response.error_description || response.error));
@@ -70,4 +75,30 @@ export function revokeToken(accessToken: string): Promise<void> {
     if (!oauth2) return resolve();
     oauth2.revoke(accessToken, () => resolve());
   });
+}
+
+/** A new token was issued for a different Google account than the signed-in one. */
+export class AccountMismatchError extends Error {}
+
+/**
+ * Returns the address a new token belongs to, looked up with that token. When
+ * `expected` is set and the token is for another account, the new token is
+ * revoked and AccountMismatchError is thrown. The token is not revoked when the
+ * lookup itself fails, because for the same account that would also revoke the
+ * grant behind the token already in use.
+ */
+export async function confirmAccount(
+  accessToken: string,
+  expected: string,
+  lookupEmail: (accessToken: string) => Promise<string>,
+  revoke: (accessToken: string) => Promise<void> = revokeToken,
+): Promise<string> {
+  const actual = await lookupEmail(accessToken);
+  if (expected && actual.toLowerCase() !== expected.toLowerCase()) {
+    await revoke(accessToken);
+    throw new AccountMismatchError(
+      `That permission was granted for ${actual}, not ${expected}. Nothing changed; grant it again and choose ${expected}.`,
+    );
+  }
+  return actual;
 }

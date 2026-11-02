@@ -3,6 +3,7 @@ import {
   FilterError,
   addDays,
   buildQuery,
+  checkRawSyntax,
   dateRangeError,
   emptyFilters,
   labelTerm,
@@ -244,9 +245,9 @@ describe('buildQuery', () => {
         'larger:5M',
         'smaller:500K',
         'is:read',
+        '(older_than:1y OR is:muted)',
         '-is:starred',
         '-is:important',
-        '(older_than:1y OR is:muted)',
       ].join(' '),
     );
   });
@@ -271,5 +272,42 @@ describe('buildQuery', () => {
     expect(() => buildQuery(filters({ largerThan: '1.5' }), UTC)).toThrow(FilterError);
     expect(() => buildQuery(filters({ smallerThan: '0' }), UTC)).toThrow(FilterError);
     expect(() => buildQuery(filters({ largerThan: '-3' }), UTC)).toThrow(FilterError);
+  });
+});
+
+describe('checkRawSyntax', () => {
+  it('accepts balanced syntax', () => {
+    for (const raw of ['older_than:1y OR is:muted', '(a OR b) {c d}', '({a b} OR c)', 'subject:"(unbalanced) { inside" x', '()']) {
+      expect(() => checkRawSyntax(raw)).not.toThrow();
+    }
+  });
+
+  it('rejects unmatched quotes, parentheses and braces', () => {
+    for (const raw of [') OR (in:anywhere', 'x) OR is:important OR (y', '{ is:starred', '"', 'a)', '(a', 'a}', '({a)}', '"a" "b']) {
+      expect(() => checkRawSyntax(raw)).toThrow(FilterError);
+    }
+  });
+});
+
+describe('buildQuery raw syntax', () => {
+  const before = `before:${Date.UTC(2024, 0, 15) / 1000}`;
+
+  it('cannot escape its parentheses', () => {
+    for (const raw of [') OR (in:anywhere', 'x) OR is:important OR (y', '{ is:starred', '"']) {
+      expect(() => buildQuery(filters({ raw }), UTC)).toThrow(FilterError);
+    }
+  });
+
+  it('keeps the protections after the raw group', () => {
+    expect(buildQuery(filters({ raw: 'a OR b' }), UTC)).toBe(`${before} (a OR b) -is:starred -is:important`);
+    expect(buildQuery(filters({ raw: 'x OR (in:inbox)', excludeStarred: false }), UTC)).toBe(
+      `${before} (x OR (in:inbox)) -is:important`,
+    );
+  });
+
+  it('ignores brackets inside quotes', () => {
+    expect(buildQuery(filters({ raw: 'subject:"(draft"' }), UTC)).toBe(
+      `${before} (subject:"(draft") -is:starred -is:important`,
+    );
   });
 });

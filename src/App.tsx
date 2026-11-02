@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FilterForm } from './components/FilterForm';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { FULL_SCOPE, MODIFY_SCOPE, clientId, requestToken, revokeToken, type AccessToken } from './lib/auth';
+import {
+  FULL_SCOPE,
+  MODIFY_SCOPE,
+  clientId,
+  confirmAccount,
+  requestToken,
+  revokeToken,
+  type AccessToken,
+} from './lib/auth';
 import {
   AuthExpiredError,
   CancelledError,
@@ -35,6 +43,11 @@ type Phase =
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** The address a token belongs to, looked up with that token rather than the one in use. */
+function lookupEmail(accessToken: string): Promise<string> {
+  return new GmailClient(() => accessToken).getProfile().then((p) => p.emailAddress);
 }
 
 export function App() {
@@ -87,6 +100,14 @@ export function App() {
     return false;
   }
 
+  // A new token may belong to a different grant, so nothing previewed under the old one is kept.
+  function installToken(t: AccessToken) {
+    tokenRef.current = t.accessToken;
+    setToken(t);
+    setPreview(null);
+    setPhase({ kind: 'idle' });
+  }
+
   async function signIn() {
     setError('');
     try {
@@ -96,10 +117,10 @@ export function App() {
         await revokeToken(t.accessToken);
         return;
       }
-      tokenRef.current = t.accessToken;
-      setToken(t);
-      const [profile, rawLabels] = await Promise.all([client.getProfile(), client.listLabels()]);
-      setEmail(profile.emailAddress);
+      const address = await confirmAccount(t.accessToken, '', lookupEmail);
+      installToken(t);
+      setEmail(address);
+      const rawLabels = await client.listLabels();
       setLabels(
         rawLabels
           .filter((l) => l.type === 'user' || SYSTEM_LABELS_OFFERED.has(l.id))
@@ -125,13 +146,14 @@ export function App() {
   async function grantFullScope() {
     setError('');
     try {
-      const t = await requestToken(FULL_SCOPE);
+      const t = await requestToken(FULL_SCOPE, '', email);
       if (!t.hasFull) {
         setError('Permanent-delete permission was not granted. Moving to Trash is still available.');
         return;
       }
-      tokenRef.current = t.accessToken;
-      setToken(t);
+      // The popup lets the user pick any account; only the signed-in one may be upgraded.
+      await confirmAccount(t.accessToken, email, lookupEmail);
+      installToken(t);
     } catch (err) {
       setError(errorMessage(err));
     }
